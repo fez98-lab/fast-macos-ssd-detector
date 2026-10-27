@@ -1,0 +1,1 @@
+# fast-macos-ssd-detector
