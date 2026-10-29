@@ -1,10 +1,11 @@
 #!/bin/bash
-# ==============================================================================
+
+
 # Fast macOS Fake SSD Detector
 # An experimental script to quickly uncover counterfeit external drives.
-# ==============================================================================
 
-MB_PER_STEP=1000  # Default: 1 GB per loop step
+# Size per loop step (z.B. 1000 MB = 1 GB)
+MB_PRO_SCHRITT=1000
 
 echo "=========================================="
 echo "  ⚡ FAST SSD DETECTOR FOR MACOS ⚡"
@@ -19,45 +20,46 @@ echo "------------------------------------------"
 echo ""
 
 # 2. Get user input
-echo -n "👉 Please enter the exact name of the SSD: "
+echo -n  "👉 Please enter the exact name of the SSD: "
 read -r VOLUME_INPUT
 
 TARGET_VOLUME="/Volumes/$VOLUME_INPUT"
+TEST_FILE="$TARGET_VOLUME/ssd_loop_test.bin"
 
 if [ -z "$VOLUME_INPUT" ] || [ ! -d "$TARGET_VOLUME" ]; then
     echo "❌ Error: Volume not found!"
     exit 1
 fi
 
-echo ""
-echo "🚀 Starting detection loop on: $TARGET_VOLUME"
-echo "------------------------------------------"
-
-STEP_COUNTER=1
+SCHRITT_COUNTER=1
 
 while true; do
     echo ""
-    echo "--- [ Testing Block #$STEP_COUNTER (${MB_PER_STEP}MB) ] ---"
+    echo "--- [ Testing Block #$SCHRITT_COUNTER (${MB_PRO_SCHRITT}MB) ] ---"
 
-    # Use a unique, dynamic filename to bypass basic drive-side metadata caching
-    TEST_FILE="$TARGET_VOLUME/test_block_${STEP_COUNTER}_$(date +%s).bin"
+    # 3. Generate unique block sequence (Optimized for macOS)
+    echo "-> Generating unique pattern for Block #$SCHRITT_COUNTER..."
     
-    echo "-> Writing $MB_PER_STEP MB unique block sequence..."
-    # Writing zeros but saving them into unique files to force sequential cell occupation
-    dd if=/dev/zero of="$TEST_FILE" bs=1m count=$MB_PER_STEP 2>/dev/null
+    # Calculate the exact amount Bytes (1 MB = 1048576 Bytes)
+    BYTES_TO_WRITE=$((MB_PRO_SCHRITT * 1048576))
+    TEXT_PATTERN="BLOCK_ID_${SCHRITT_COUNTER}_VALID_DATA_"
+    
+    #
+    perl -e "print \"$TEXT_PATTERN\" x ($BYTES_TO_WRITE / length(\"$TEXT_PATTERN\"))" > "$TEST_FILE"
     
     HASH_WRITTEN=$(md5 -q "$TEST_FILE")
 
-    # Force macOS to clear its disk read cache
+     # Force macOS to clear its disk read cache
     echo "-> Purging macOS system cache..."
     sudo purge
 
+    # Read data written
     echo "-> Verifying block integrity..."
     HASH_READ=$(md5 -q "$TEST_FILE")
 
-    # The Core Fraud Check
+     # The Core Fraud Check
     if [ "$HASH_WRITTEN" = "$HASH_READ" ]; then
-        echo "✅ Block #$STEP_COUNTER verified successfully."
+        echo "✅ Block Nr. $SCHRITT_COUNTER verified successfully."
     else
         echo ""
         echo "❌ !!! ALARM !!! DATA CORRUPTION DETECTED!"
@@ -65,23 +67,25 @@ while true; do
         echo "   Received Hash: $HASH_READ"
         echo "   Reason: The SSD is silently overwriting old data blocks."
         echo "   🚨 THIS IS DEFINITELY A FAKE DRIVE! 🚨"
-        echo "------------------------------------------"
+        rm "$TEST_FILE" 2>/dev/null
         exit 1
     fi
 
-    # Keep the file on the drive to force real storage consumption
-    # If it's a fake drive, it will loop and corrupt previous files shortly.
-    TOTAL_GB=$(( (STEP_COUNTER * MB_PER_STEP) / 1000 ))
+    # Important: Keep the file on the drive to force real storage consumption
+    mv "$TEST_FILE" "$TARGET_VOLUME/saved_block_${SCHRITT_COUNTER}.bin"
+
+    GESAMT_GB=$(( (SCHRITT_COUNTER * MB_PRO_SCHRITT) / 1000 ))
     echo "------------------------------------------"
-    echo -n "👉 Block #$STEP_COUNTER safe (~$TOTAL_GB GB filled). Test next block? (j/n): "
+    echo -n "👉 Block $SCHRITT_COUNTER safe ($GESAMT_GB GB filled). Test next block? (y/n): "
     read -r ANSWER
     
-    if [ "$ANSWER" != "j" ] && [ "$ANSWER" != "J" ]; then
+    if [ "$ANSWER" != "y" ] && [ "$ANSWER" != "Y" ]; then
         echo ""
         echo "🏁 Test paused by user. Cleaning up test files from SSD..."
-        rm "$TARGET_VOLUME"/test_block_*.bin 2>/dev/null
+        rm $TARGET_VOLUME/saved_block_*.bin 2>/dev/null
         exit 0
     fi
 
-    STEP_COUNTER=$((STEP_COUNTER + 1))
+    SCHRITT_COUNTER=$((SCHRITT_COUNTER + 1))
 done
+
